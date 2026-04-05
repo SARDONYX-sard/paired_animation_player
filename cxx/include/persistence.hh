@@ -1,9 +1,6 @@
 #pragma once
-#include <filesystem>
 
-namespace skyrim_cheat::persistence {
-
-    std::filesystem::path GetDataFile();
-    void                  SaveAll();
-    void                  LoadAll();
+namespace paired_anim::persistence {
+    void Save();
+    void Load();
 }

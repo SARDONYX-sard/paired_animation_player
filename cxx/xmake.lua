@@ -1,9 +1,9 @@
 -- Please change this for your settings.
-local PLUGIN_NAME<const> = "RustBridgeTemplate" -- dll name
+local PLUGIN_NAME<const> = "PairedAnimationPlayer" -- dll name
 local AUTHOR_NAME<const> = "SARDONYX" -- NOTE: Including a space seems to break the rc.
-local DESCRIPTION<const> = "Plugin Description"
+local DESCRIPTION<const> = "Play Paired Animation with player and NPCs."
 local VERSION<const> = "0.1.0"
-local LICENSE<const> = "Unlicense OR Apache-2.0"
+local LICENSE<const> = "MIT OR Apache-2.0"
 --
 
 set_config("rex_toml", true)
