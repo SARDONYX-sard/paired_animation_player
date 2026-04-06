@@ -1,6 +1,11 @@
-# xmake + SKSE Plugin Template (C++ <- bridge -> Rust)
+# PairedAnimationPlayer
 
-## Requirements
+## Requirements(User)
+
+- AddressLibrary
+- SKSE Menu Framework
+
+## Requirements(Dev)
 
 - Rust: >= v1.91
 - MSVC
@@ -9,15 +14,13 @@
 ## Build
 
 ```shell
-git submodule update --init --recursive --depth=1 && xmake
+git submodule update --init --recursive --depth=1 && xmake PairedAnimationPlayer
 ```
 
 - And then install(`./build/artifact/SKSE/Data/<PLUGIN_NAME>.dll`)
 
-NOTE: The `MyPlugin` is `PLUGIN_NAME` value in cxx/xmake.lua.
-
 ```shell
-xmake install -o ./build/artifact MyPlugin
+xmake install -o ./build/artifact PairedAnimationPlayer
 ```
 
 ## Language server(For `clangd`)
@@ -42,5 +45,4 @@ xmake format
 
 ## License
 
-There is no license specified for this template.
-It is okay to delete this item, but we recommend MIT OR APACHE2.0. This is because the license terms are clear when there is a documented license.
+MIT OR Apache2.0
