@@ -1,54 +1,174 @@
 #include <SKSEMenuFramework.h>
+#include <optional>
 
 #include "actor_scanner.hh"
 #include "anim_sender.hh"
 #include "persistence.hh"
 #include "state.hh"
 
+#include <SKSEMenuFramework.h>
+#include <optional>
+
 namespace paired_anim::ui {
     namespace {
+        static RE::Actor* ResolveActor(const std::optional<RE::ActorHandle>& handle) {
+            if (!handle) {
+                return nullptr;
+            }
 
-        inline constexpr int kRescanInterval = 60;
+            return handle->get().get();
+        }
+
+        static RE::TESIdleForm* ResolveIdle(std::string_view editorID) {
+            auto* form = RE::TESForm::LookupByEditorID(editorID);
+
+            return form ? form->As<RE::TESIdleForm>() : nullptr;
+        }
+
+        static std::string GetActorLabel(const std::optional<RE::ActorHandle>& handle) {
+            auto* actor = ResolveActor(handle);
+
+            if (!actor) {
+                return "—";
+            }
+
+            return std::format("{} [{:08X}]", actor->GetDisplayFullName(), actor->GetFormID());
+        }
 
         static void RebuildActorList() {
             auto& s = g_state;
+
             s.nearbyActors = ScanNearbyActors(s.scanRadius);
 
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
                 NearbyActor entry;
-                entry.actor = player;
+                entry.actor = player->GetHandle();
+
                 entry.distanceSq = 0.f;
-                entry.label = std::format("[Player] {:#010x}", player->GetFormID());
+
+                entry.label = std::format("[Player] {:08X}", player->GetFormID());
+
                 s.nearbyActors.insert(s.nearbyActors.begin(), std::move(entry));
             }
 
             const int sz = static_cast<int>(s.nearbyActors.size());
-            if (s.attackerIdx >= sz)
+
+            if (s.attackerIdx >= sz) {
                 s.attackerIdx = -1;
-            if (s.victimIdx >= sz)
+            }
+
+            if (s.victimIdx >= sz) {
                 s.victimIdx = -1;
+            }
         }
 
-        static RE::Actor* ResolveSlot(int idx) {
+        static std::optional<RE::ActorHandle> ResolveSlot(int idx) {
             const auto& actors = g_state.nearbyActors;
-            if (idx < 0 || idx >= static_cast<int>(actors.size()))
-                return nullptr;
+
+            if (idx < 0 || idx >= static_cast<int>(actors.size())) {
+                return std::nullopt;
+            }
+
             return actors[idx].actor;
         }
 
         static void DrawActorList(const char* label, int& selectedIdx) {
             ImGuiMCP::TextUnformatted(label);
+
             const float listH = ImGuiMCP::GetTextLineHeightWithSpacing() * 8.f;
-            if (ImGuiMCP::BeginListBox(std::format("##{}", label).c_str(),
-                    ImGuiMCP::ImVec2{ 0.f, listH })) {
+
+            if (ImGuiMCP::BeginListBox(std::format("##{}", label).c_str(), ImGuiMCP::ImVec2{ 0.f, listH })) {
                 const auto& actors = g_state.nearbyActors;
+
                 for (int i = 0; i < static_cast<int>(actors.size()); ++i) {
                     const bool sel = (selectedIdx == i);
-                    if (ImGuiMCP::Selectable(actors[i].label.c_str(), sel))
+
+                    if (ImGuiMCP::Selectable(actors[i].label.c_str(), sel)) {
                         selectedIdx = i;
-                    if (sel)
+                    }
+
+                    if (sel) {
                         ImGuiMCP::SetItemDefaultFocus();
+                    }
                 }
+
+                ImGuiMCP::EndListBox();
+            }
+        }
+
+        [[nodiscard]]
+        inline const char* GetFireStatusLabel(FireStatus status) {
+            switch (status) {
+            case FireStatus::None:
+                return "—";
+
+            case FireStatus::Ok:
+                return "OK";
+
+            case FireStatus::PartialFail:
+                return "Partial FAIL";
+
+            case FireStatus::Fail:
+                return "FAIL";
+
+            default:
+                return "Unknown";
+            }
+        }
+
+        [[nodiscard]]
+        inline ImGuiMCP::ImVec4 GetFireStatusColor(FireStatus status) {
+            switch (status) {
+            case FireStatus::None:
+                return { 0.5f, 0.5f, 0.5f, 1.f };  // grey
+
+            case FireStatus::Ok:
+                return { 0.2f, 1.f, 0.2f, 1.f };  // green
+
+            case FireStatus::PartialFail:
+                return { 1.f, 0.8f, 0.f, 1.f };  // yellow
+
+            case FireStatus::Fail:
+                return { 1.f, 0.2f, 0.2f, 1.f };  // red
+
+            default:
+                return { 1.f, 1.f, 1.f, 1.f };  // white
+            }
+        }
+
+        void RenderIdleList(State& s) {
+            ImGuiMCP::SeparatorText("Paired Idle");
+
+            ImGuiMCP::SetNextItemWidth(300.f);
+
+            ImGuiMCP::InputText("Search", s.idleSearch, sizeof(s.idleSearch));
+
+            const float listH = ImGuiMCP::GetTextLineHeightWithSpacing() * 10.f;
+
+            if (ImGuiMCP::BeginListBox("##IdleList", { 0.f, listH })) {
+                for (int i = 0; i < static_cast<int>(s.idleCandidates.size()); ++i) {
+                    const auto& name = s.idleCandidates[i];
+
+                    if (strlen(s.idleSearch) > 0) {
+                        if (!std::string_view(name).contains(s.idleSearch)) {
+                            continue;
+                        }
+                    }
+
+                    const bool selected = s.selectedIdleIdx == i;
+
+                    if (ImGuiMCP::Selectable(name.c_str(), selected)) {
+                        s.selectedIdleIdx = i;
+                        s.selectedIdle = name;
+
+                        persistence::Save();
+                    }
+
+                    if (selected) {
+                        ImGuiMCP::SetItemDefaultFocus();
+                    }
+                }
+
                 ImGuiMCP::EndListBox();
             }
         }
@@ -56,191 +176,121 @@ namespace paired_anim::ui {
         void __stdcall Render() {
             auto& s = g_state;
 
-            // Throttled rescan.
-            if (++s.frameCounter >= kRescanInterval) {
-                RebuildActorList();
-                s.frameCounter = 0;
-            }
-
-            // ---- Scan radius ---------------------------------------------------
+            // ------------------------------------------------------------
+            // Scan radius
+            // ------------------------------------------------------------
             ImGuiMCP::SetNextItemWidth(220.f);
-            if (ImGuiMCP::SliderFloat("Scan radius (units)", &s.scanRadius,
-                    500.f, 10000.f, "%.0f")) {
-                s.frameCounter = kRescanInterval;
-                paired_anim::persistence::Save();
+
+            if (ImGuiMCP::SliderFloat("Scan radius (units)", &s.scanRadius, 500.f, 10000.f, "%.0f")) {
+                RebuildActorList();
+                persistence::Save();
             }
             ImGuiMCP::SameLine();
+
+            if (ImGuiMCP::Button("Rescan")) {
+                RebuildActorList();
+            }
+
+            if (s.idleCandidates.empty()) {
+                s.idleCandidates = BuildIdleList();
+            }
+
+            ImGuiMCP::SameLine();
+
             ImGuiMCP::TextDisabled("(%.0f m)", s.scanRadius * 0.01428f);
 
-            // ---- Actor selection -----------------------------------------------
-            ImGuiMCP::SeparatorText("Actors  (refreshed every ~1 s)");
+            // ------------------------------------------------------------
+            // Actor selection
+            // ------------------------------------------------------------
+
+            ImGuiMCP::SeparatorText("Actors");
 
             ImGuiMCP::ImVec2 outPos{};
+
             ImGuiMCP::GetContentRegionAvail(&outPos);
+
             const float halfW = (outPos.x - 8.f) * 0.5f;
 
             ImGuiMCP::BeginGroup();
+
             ImGuiMCP::SetNextItemWidth(halfW);
+
             DrawActorList("Attacker", s.attackerIdx);
+
             if (ImGuiMCP::Button("Player##A")) {
                 s.attackerIdx = 0;
             }
+
             ImGuiMCP::EndGroup();
 
             ImGuiMCP::SameLine(0.f, 8.f);
 
             ImGuiMCP::BeginGroup();
+
             ImGuiMCP::SetNextItemWidth(halfW);
+
             DrawActorList("Victim", s.victimIdx);
+
             if (ImGuiMCP::Button("Player##V")) {
                 s.victimIdx = 0;
             }
+
             ImGuiMCP::EndGroup();
 
-            // ---- Animation selection -------------------------------------------
-            ImGuiMCP::SeparatorText("Animation");
-            if (ImGuiMCP::Checkbox("Custom events", &s.useCustom))
-                persistence::Save();
+            // ------------------------------------------------------------
+            // Animation
+            // ------------------------------------------------------------
+            RenderIdleList(s);
 
-            if (s.useCustom) {
-                // InputText needs a mutable char buffer — use local copies backed by std::string.
-                std::array<char, 64> aBuf{}, vBuf{};
-                strncpy_s(aBuf.data(), sizeof(aBuf), s.customAttacker.c_str(), sizeof(aBuf) - 1);
-                strncpy_s(vBuf.data(), sizeof(vBuf), s.customVictim.c_str(), sizeof(vBuf) - 1);
+            // ------------------------------------------------------------
+            // Runtime actor resolve
+            // ------------------------------------------------------------
 
-                ImGuiMCP::SetNextItemWidth(300.f);
-
-                if (s.autoInputAttacker) {
-                    ImGuiMCP::BeginDisabled();
-
-                    // Auto-fill attack event by replacing common attacker prefixes.
-                    // E.g. "KillMoveSneakBackA" -> "pa_KillMoveSneakBackA"
-                    if (s.customVictim.starts_with("pa_")) {
-                        s.customAttacker = s.customAttacker.substr(3);
-                    } else {
-                        s.customAttacker = "pa_" + s.customVictim;
-                    }
-                    aBuf.fill('\0');
-                    strncpy_s(aBuf.data(), sizeof(aBuf), s.customAttacker.c_str(), sizeof(aBuf) - 1);
-                }
-                if (ImGuiMCP::InputText("Attacker event", aBuf.data(), sizeof(aBuf))) {
-                    s.customAttacker = aBuf.data();
-                    persistence::Save();
-                }
-
-                if (s.autoInputAttacker) {
-                    ImGuiMCP::EndDisabled();
-                }
-                ImGuiMCP::SameLine();
-                ImGuiMCP::Checkbox("Auto##A", &s.autoInputAttacker);
-                if (ImGuiMCP::IsItemHovered()) {
-                    ImGuiMCP::SetTooltip("Auto-fill attack event by replacing common attacker prefixes. e.g., `KillMoveSneakBackA` -> `pa_KillMoveSneakBackA` ");
-                }
-
-                ImGuiMCP::SetNextItemWidth(300.f);
-                if (ImGuiMCP::InputText("Victim event", vBuf.data(), sizeof(vBuf))) {
-                    s.customVictim = vBuf.data();
-                    persistence::Save();
-                }
-            } else {
-                static constexpr auto kLabels = []() {
-                    std::array<const char*, kPresets.size()> arr{};
-                    for (std::size_t i = 0; i < kPresets.size(); ++i)
-                        arr[i] = kPresets[i].label;
-                    return arr;
-                }();
-
-                ImGuiMCP::SetNextItemWidth(300.f);
-                if (ImGuiMCP::Combo("Preset", &s.presetIdx,
-                        kLabels.data(), static_cast<int>(kLabels.size()))) {
-                    persistence::Save();
-                }
-            }
-
-            // ---- Status + Fire -------------------------------------------------
-            ImGuiMCP::Separator();
-
-            // Resolve from list selection (runtime only, not saved here).
             s.attacker = ResolveSlot(s.attackerIdx);
             s.victim = ResolveSlot(s.victimIdx);
 
-            ImGuiMCP::TextDisabled("Attacker : %s",
-                s.attacker ? s.attacker->GetDisplayFullName() : "—");
-            ImGuiMCP::TextDisabled("Victim   : %s",
-                s.victim ? s.victim->GetDisplayFullName() : "—");
+            const auto attackerLabel = GetActorLabel(s.attacker);
+            const auto victimLabel = GetActorLabel(s.victim);
 
-            // ---- Positioning -----------------------------------------------------------
-            ImGuiMCP::SeparatorText("Positioning");
+            ImGuiMCP::Separator();
 
-            if (ImGuiMCP::Checkbox("Reposition victim before fire", &s.repositionBeforeFire)) {
-                persistence::Save();
-            }
+            ImGuiMCP::TextDisabled("Attacker : %s", attackerLabel.c_str());
+            ImGuiMCP::TextDisabled("Victim   : %s", victimLabel.c_str());
 
-            if (s.repositionBeforeFire) {
-                ImGuiMCP::SetNextItemWidth(300.f);
-                if (ImGuiMCP::Combo("Victim placement",
-                        reinterpret_cast<int*>(&s.placement),
-                        kPlacementLabels.data(),
-                        static_cast<int>(kPlacementLabels.size()))) {
-                    persistence::Save();
-                }
+            // ------------------------------------------------------------
+            // Fire
+            // ------------------------------------------------------------
 
-                // Visual hint — show the relative geometry as ASCII
-                ImGuiMCP::SameLine();
-                const char* diagram = nullptr;
+            auto* attackerPtr = ResolveActor(s.attacker);
+            auto* victimPtr = ResolveActor(s.victim);
 
-                switch (s.placement) {
-                    using enum VictimPlacement;
-                case FacingPlayer:
-                    diagram = "[A]→ ←[V]";
-                    break;
-                case BehindPlayer:
-                    diagram = "[V]→ [A]→";
-                    break;
-                case SidewaysLeft:
-                    diagram = "[V]↓ [A]→";
-                    break;
-                case SidewaysRight:
-                    diagram = "[A]→ [V]↑";
-                    break;
-                }
-
-                ImGuiMCP::TextDisabled("%s", diagram);
-            }
-
-            // ---- Bottom exec button -----------------------------------------------------------
-            const bool canFire = s.attacker && s.victim && s.attacker != s.victim;
-            if (!canFire)
+            const bool canFire = attackerPtr && victimPtr && attackerPtr != victimPtr;
+            if (!canFire) {
                 ImGuiMCP::BeginDisabled();
+            }
 
             if (ImGuiMCP::Button("Fire Paired Animation", ImGuiMCP::ImVec2{ -1.f, 0.f })) {
-                const auto& [lbl, ae, ve] = s.useCustom ?
-                                                AnimPair{
-                                                    .label = "custom",
-                                                    .attackerEvent = s.customAttacker.c_str(),
-                                                    .victimEvent = s.customVictim.c_str(),
-                                                } :
-                                                kPresets[s.presetIdx];
-                paired_anim::Send(s.attacker, s.victim, ae, ve, s.placement);
+                auto* idle = ResolveIdle(s.selectedIdle);
+
+                if (!idle) {
+                    SPDLOG_ERROR("Idle '{}' not found", s.selectedIdle);
+                } else {
+                    auto ok = paired_anim::PlayPairedIdle(attackerPtr, victimPtr, idle);
+                    g_state.lastFireStatus = (ok) ? FireStatus::Ok : FireStatus::Fail;
+                }
             }
 
             if (!canFire) {
                 ImGuiMCP::EndDisabled();
+
                 if (ImGuiMCP::IsItemHovered(ImGuiMCP::ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGuiMCP::SetTooltip("Select different Attacker and Victim");
+                    ImGuiMCP::SetTooltip("Select different actors");
                 }
             }
 
-            // ---- Status display --------------------------------------------------------
-            const int si = static_cast<int>(s.lastFireStatus);
-            ImGuiMCP::TextColored(kFireStatusColors[si], "Status: %s", kFireStatusLabels[si]);
-
-            // Breakdown is useful when PartialFail
-            if (s.lastFireStatus == FireStatus::PartialFail ||
-                s.lastFireStatus == FireStatus::Fail) {
-                ImGuiMCP::SameLine();
-                ImGuiMCP::TextDisabled("(attacker:%s  victim:%s)", s.attackerEventOk ? "OK" : "FAIL", s.victimEventOk ? "OK" : "FAIL");
-            }
+            // Status
+            ImGuiMCP::TextColored(GetFireStatusColor(s.lastFireStatus), "Status: %s",
+                GetFireStatusLabel(s.lastFireStatus));
         }
 
         bool __stdcall OnInput(RE::InputEvent*) { return false; }
@@ -251,6 +301,7 @@ namespace paired_anim::ui {
             SPDLOG_WARN("PairedAnim: SKSEMenuFramework not installed");
             return;
         }
+
         SKSEMenuFramework::SetSection("PairedAnimHelper");
         SKSEMenuFramework::AddSectionItem("Paired Anim", Render);
         SKSEMenuFramework::AddInputEvent(OnInput);

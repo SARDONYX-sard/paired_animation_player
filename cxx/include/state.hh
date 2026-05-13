@@ -2,6 +2,7 @@
 #include <SKSEMenuFramework.h>
 #include <string>
 
+#include "RE/B/BSCoreTypes.h"
 #include "actor_scanner.hh"
 
 namespace paired_anim {
@@ -31,57 +32,52 @@ namespace paired_anim {
     // One global instance: PairedAnim::g_state
     struct State {
         // ---- Persistent (saved to TOML) -------------------------------------
-        float       scanRadius{ 2000.f };
-        int         presetIdx{ 0 };
-        bool        useCustom{ false };
-        std::string customAttacker{ "pa_HugA" };
-        std::string customVictim{ "HugA" };
+        float scanRadius{ 2000.f };
 
-        bool autoInputAttacker{ false };
-
-        // FormIDs survive save/load; Actor* do not.
-        RE::FormID attackerFormID{ 0 };
+        RE::FormID attackerFormID{ 0 };  // FormIDs survive save/load; Actor* do not.
         RE::FormID victimFormID{ 0 };
 
-        bool            repositionBeforeFire{ true };
-        VictimPlacement placement{ VictimPlacement::FacingPlayer };
+        std::string selectedIdle{ "pa_HugB" };  // CK Idle EditorID
 
         // ---- Runtime (not saved) --------------------------------------------
         // Resolved from FormIDs on load, and updated by UI selection.
-        RE::Actor* attacker{ nullptr };
-        RE::Actor* victim{ nullptr };
+        std::optional<RE::ActorHandle> attacker{ std::nullopt };
+        std::optional<RE::ActorHandle> victim{ std::nullopt };
 
         // Nearby actor list rebuilt every kRescanInterval frames.
-        std::vector<struct NearbyActor> nearbyActors;
+        std::vector<struct NearbyActor> nearbyActors{};
         int                             attackerIdx{ -1 };  // index into nearbyActors
         int                             victimIdx{ -1 };
         int                             frameCounter{ 0 };
 
         FireStatus lastFireStatus{ FireStatus::None };
-        bool       attackerEventOk{ false };
-        bool       victimEventOk{ false };
+
+        std::vector<std::string> idleCandidates{};
+        int                      selectedIdleIdx{ -1 };
+        char                     idleSearch[64]{};
 
         // ---- Helpers --------------------------------------------------------
 
         // Sync Actor* from current FormIDs (call after load).
         void ResolveActors() {
             auto lookup = [](RE::FormID id) -> RE::Actor* {
-                if (!id)
+                if (!id) {
                     return nullptr;
+                }
                 auto* form = RE::TESForm::LookupByID(id);
                 return form ? form->As<RE::Actor>() : nullptr;
             };
+
             attacker = lookup(attackerFormID);
             victim = lookup(victimFormID);
         }
 
         // Sync FormIDs from Actor* (call before save and after UI selection).
         void SyncFormIDs() {
-            attackerFormID = attacker ? attacker->GetFormID() : 0;
-            victimFormID = victim ? victim->GetFormID() : 0;
+            attackerFormID = (attacker && attacker->get()) ? attacker->get()->GetFormID() : 0;
+            victimFormID = (victim && victim->get()) ? victim->get()->GetFormID() : 0;
         }
     };
 
-    // Single global instance.
-    inline State g_state;
+    inline State g_state;  // Single global instance.
 }

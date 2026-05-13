@@ -1,5 +1,5 @@
 #include "anim_sender.hh"
-#include "core.hh"
+#include "bridge/src/bridge.rs.h"
 #include "state.hh"
 #include "ui/paired_anim.hh"
 
@@ -7,7 +7,7 @@ namespace {
     static void skse_listener(SKSE::MessagingInterface::Message* a_msg) {
         switch (a_msg->type) {
         case SKSE::MessagingInterface::kPostLoadGame:  // Fired after loading a game save.
-            skse_plugin_core::init();
+            bridge::bridge_init();
             paired_anim::ui::Register();
             return;
 
@@ -16,7 +16,6 @@ namespace {
             paired_anim::g_state.ResolveActors();
             return;
         case SKSE::MessagingInterface::kInputLoaded:  // Fired when the input system is loaded.
-            paired_anim::RegisterConsoleCommand();
             return;
         case SKSE::MessagingInterface::kPostPostLoad:  // Fired after all `PostLoad` events have completed.
             paired_anim::ui::Register();
@@ -32,8 +31,7 @@ namespace {
     }
 }
 
-extern "C" __declspec(dllexport) bool
-    SKSEPlugin_Load(const SKSE::LoadInterface* a_interface) {
+extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSE::LoadInterface* a_interface) {
     SKSE::Init(a_interface);
 
     auto msg = SKSE::GetMessagingInterface();
