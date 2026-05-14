@@ -1,4 +1,3 @@
-#include "anim_sender.hh"
 #include "bridge/src/bridge.rs.h"
 #include "state.hh"
 #include "ui/paired_anim.hh"
@@ -15,16 +14,13 @@ namespace {
         case SKSE::MessagingInterface::kDataLoaded:  // Fired after all game data has loaded.
             paired_anim::g_state.ResolveActors();
             return;
-        case SKSE::MessagingInterface::kInputLoaded:  // Fired when the input system is loaded.
-            return;
-        case SKSE::MessagingInterface::kPostPostLoad:  // Fired after all `PostLoad` events have completed.
-            paired_anim::ui::Register();
-            return;
 
-        case SKSE::MessagingInterface::kPostLoad:     // Fired after all plugins are loaded.
-        case SKSE::MessagingInterface::kPreLoadGame:  // Fired before loading a game save.
-        case SKSE::MessagingInterface::kSaveGame:     // Fired before saving a game.
-        case SKSE::MessagingInterface::kDeleteGame:   // Fired before deleting a game save.
+        case SKSE::MessagingInterface::kDeleteGame:    // Fired before deleting a game save.
+        case SKSE::MessagingInterface::kInputLoaded:   // Fired when the input system is loaded.
+        case SKSE::MessagingInterface::kPostLoad:      // Fired after all plugins are loaded.
+        case SKSE::MessagingInterface::kPostPostLoad:  // Fired after all `PostLoad` events have completed.
+        case SKSE::MessagingInterface::kPreLoadGame:   // Fired before loading a game save.
+        case SKSE::MessagingInterface::kSaveGame:      // Fired before saving a game.
         default:
             return;
         }

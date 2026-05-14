@@ -13,23 +13,7 @@ namespace paired_anim {
         Fail = 3,         // both failed
     };
 
-    inline constexpr std::array<const char*, 4> kFireStatusLabels{
-        "—",
-        "OK",
-        "Partial FAIL",
-        "FAIL",
-    };
-
-    // Status colors for ImGui (RGBA)
-    inline constexpr std::array<ImGuiMCP::ImVec4, 4> kFireStatusColors{
-        ImGuiMCP::ImVec4{ 0.5f, 0.5f, 0.5f, 1.f },  // None    — grey
-        ImGuiMCP::ImVec4{ 0.2f, 1.0f, 0.2f, 1.f },  // Ok      — green
-        ImGuiMCP::ImVec4{ 1.0f, 0.8f, 0.0f, 1.f },  // Partial — yellow
-        ImGuiMCP::ImVec4{ 1.0f, 0.2f, 0.2f, 1.f },  // Fail    — red
-    };
-
-    // All persistent + runtime state lives here.
-    // One global instance: PairedAnim::g_state
+    // All persistent + runtime state lives here. One global instance: PairedAnim::g_state
     struct State {
         // ---- Persistent (saved to TOML) -------------------------------------
         float scanRadius{ 2000.f };
@@ -59,7 +43,7 @@ namespace paired_anim {
         // ---- Helpers --------------------------------------------------------
 
         // Sync Actor* from current FormIDs (call after load).
-        void ResolveActors() {
+        inline void ResolveActors() {
             auto lookup = [](RE::FormID id) -> RE::Actor* {
                 if (!id) {
                     return nullptr;
@@ -68,14 +52,14 @@ namespace paired_anim {
                 return form ? form->As<RE::Actor>() : nullptr;
             };
 
-            attacker = lookup(attackerFormID);
-            victim = lookup(victimFormID);
+            this->attacker = lookup(attackerFormID);
+            this->victim = lookup(victimFormID);
         }
 
         // Sync FormIDs from Actor* (call before save and after UI selection).
-        void SyncFormIDs() {
-            attackerFormID = (attacker && attacker->get()) ? attacker->get()->GetFormID() : 0;
-            victimFormID = (victim && victim->get()) ? victim->get()->GetFormID() : 0;
+        inline void SyncFormIDs() {
+            this->attackerFormID = (this->attacker && this->attacker->get()) ? this->attacker->get()->GetFormID() : 0;
+            this->victimFormID = (this->victim && this->victim->get()) ? this->victim->get()->GetFormID() : 0;
         }
     };
 

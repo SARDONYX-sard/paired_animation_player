@@ -1,5 +1,3 @@
-#include "persistence.hh"
-
 #include <SKSE/SKSE.h>
 
 #include <filesystem>
@@ -7,15 +5,13 @@
 #include <toml.hpp>
 
 #include "State.hh"
+#include "persistence.hh"
 
 namespace paired_anim::persistence {
-
     namespace {
-
         static std::filesystem::path DataFile() {
             return std::filesystem::path("Data/SKSE/Plugins") / SKSE::GetPluginName() / "config.toml";
         }
-
     }
 
     void Save() {
