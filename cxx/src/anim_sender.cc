@@ -15,9 +15,9 @@ namespace paired_anim {
         if (!process) {
             return false;
         }
-        const bool ok = process->PlayIdle(attacker, idle, victim);
+        const bool is_ok = process->PlayIdle(attacker, idle, victim);
         SPDLOG_INFO("PlayPairedIdle attacker={:08X} victim={:08X} idle={:08X} result={}", attacker->GetFormID(),
-            victim->GetFormID(), idle->GetFormID(), ok);
-        return ok;
+            victim->GetFormID(), idle->GetFormID(), is_ok);
+        return is_ok;
     }
 }  // namespace paired_anim

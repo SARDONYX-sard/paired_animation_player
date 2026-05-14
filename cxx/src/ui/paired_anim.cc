@@ -6,9 +6,6 @@
 #include "persistence.hh"
 #include "state.hh"
 
-#include <SKSEMenuFramework.h>
-#include <optional>
-
 namespace paired_anim::ui {
     namespace {
         static RE::Actor* ResolveActor(const std::optional<RE::ActorHandle>& handle) {
@@ -35,29 +32,30 @@ namespace paired_anim::ui {
             return std::format("{} [{:08X}]", actor->GetDisplayFullName(), actor->GetFormID());
         }
 
-        static void RebuildActorList() {
-            auto& s = g_state;
-
-            s.nearbyActors = ScanNearbyActors(s.scanRadius);
+        static void RebuildActorList(State& s) {
+            std::vector<NearbyActor> actors{};
 
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-                NearbyActor entry;
-                entry.actor = player->GetHandle();
-
-                entry.distanceSq = 0.f;
-
-                entry.label = std::format("[Player] {:08X}", player->GetFormID());
-
-                s.nearbyActors.insert(s.nearbyActors.begin(), std::move(entry));
+                actors.push_back({
+                    .actor = player->GetHandle(),
+                    .distanceSq = 0.f,
+                    .label = std::format("[Player] {:08X}", player->GetFormID()),
+                });
             }
 
-            const int sz = static_cast<int>(s.nearbyActors.size());
+            auto nearby = ScanNearbyActors(s.scanRadius);
 
-            if (s.attackerIdx >= sz) {
+            actors.insert(actors.end(), std::make_move_iterator(nearby.begin()), std::make_move_iterator(nearby.end()));
+
+            s.nearbyActors = std::move(actors);
+
+            const int len = static_cast<int>(s.nearbyActors.size());
+
+            if (s.attackerIdx >= len) {
                 s.attackerIdx = -1;
             }
 
-            if (s.victimIdx >= sz) {
+            if (s.victimIdx >= len) {
                 s.victimIdx = -1;
             }
         }
@@ -81,13 +79,13 @@ namespace paired_anim::ui {
                 const auto& actors = g_state.nearbyActors;
 
                 for (int i = 0; i < static_cast<int>(actors.size()); ++i) {
-                    const bool sel = (selectedIdx == i);
+                    const bool selected = (selectedIdx == i);
 
-                    if (ImGuiMCP::Selectable(actors[i].label.c_str(), sel)) {
+                    if (ImGuiMCP::Selectable(actors[i].label.c_str(), selected)) {
                         selectedIdx = i;
                     }
 
-                    if (sel) {
+                    if (selected) {
                         ImGuiMCP::SetItemDefaultFocus();
                     }
                 }
@@ -96,8 +94,22 @@ namespace paired_anim::ui {
             }
         }
 
+        static void DrawActorColumn(const char* label, int& selectedIdx, const char* playerButtonId, float width) {
+            ImGuiMCP::BeginGroup();
+
+            ImGuiMCP::SetNextItemWidth(width);
+
+            DrawActorList(label, selectedIdx);
+
+            if (ImGuiMCP::Button(playerButtonId)) {
+                selectedIdx = 0;
+            }
+
+            ImGuiMCP::EndGroup();
+        }
+
         [[nodiscard]]
-        inline const char* GetFireStatusLabel(FireStatus status) {
+        static const char* GetFireStatusLabel(FireStatus status) {
             switch (status) {
             case FireStatus::None:
                 return "—";
@@ -136,7 +148,41 @@ namespace paired_anim::ui {
             }
         }
 
-        void RenderIdleList(State& s) {
+        static void DrawScanControls(State& s) {
+            ImGuiMCP::SetNextItemWidth(220.f);
+
+            if (ImGuiMCP::SliderFloat("Scan radius (units)", &s.scanRadius, 500.f, 10000.f, "%.0f")) {
+                RebuildActorList(s);
+                persistence::Save();
+            }
+
+            ImGuiMCP::SameLine();
+
+            if (ImGuiMCP::Button("Rescan")) {
+                RebuildActorList(s);
+            }
+
+            ImGuiMCP::SameLine();
+
+            ImGuiMCP::TextDisabled("(%.0f m)", s.scanRadius * 0.01428f);
+        }
+
+        static void DrawActorSelection(State& s) {
+            ImGuiMCP::SeparatorText("Actors");
+
+            ImGuiMCP::ImVec2 avail{};
+            ImGuiMCP::GetContentRegionAvail(&avail);
+
+            const float halfW = (avail.x - 8.f) * 0.5f;
+
+            DrawActorColumn("Attacker", s.attackerIdx, "Player##A", halfW);
+
+            ImGuiMCP::SameLine(0.f, 8.f);
+
+            DrawActorColumn("Victim", s.victimIdx, "Player##V", halfW);
+        }
+
+        static void DrawIdleList(State& s) {
             ImGuiMCP::SeparatorText("Paired Idle");
 
             ImGuiMCP::SetNextItemWidth(300.f);
@@ -173,98 +219,25 @@ namespace paired_anim::ui {
             }
         }
 
-        void __stdcall Render() {
-            auto& s = g_state;
-
-            // ------------------------------------------------------------
-            // Scan radius
-            // ------------------------------------------------------------
-            ImGuiMCP::SetNextItemWidth(220.f);
-
-            if (ImGuiMCP::SliderFloat("Scan radius (units)", &s.scanRadius, 500.f, 10000.f, "%.0f")) {
-                RebuildActorList();
-                persistence::Save();
-            }
-            ImGuiMCP::SameLine();
-
-            if (ImGuiMCP::Button("Rescan")) {
-                RebuildActorList();
-            }
-
-            if (s.idleCandidates.empty()) {
-                s.idleCandidates = BuildIdleList();
-            }
-
-            ImGuiMCP::SameLine();
-
-            ImGuiMCP::TextDisabled("(%.0f m)", s.scanRadius * 0.01428f);
-
-            // ------------------------------------------------------------
-            // Actor selection
-            // ------------------------------------------------------------
-
-            ImGuiMCP::SeparatorText("Actors");
-
-            ImGuiMCP::ImVec2 outPos{};
-
-            ImGuiMCP::GetContentRegionAvail(&outPos);
-
-            const float halfW = (outPos.x - 8.f) * 0.5f;
-
-            ImGuiMCP::BeginGroup();
-
-            ImGuiMCP::SetNextItemWidth(halfW);
-
-            DrawActorList("Attacker", s.attackerIdx);
-
-            if (ImGuiMCP::Button("Player##A")) {
-                s.attackerIdx = 0;
-            }
-
-            ImGuiMCP::EndGroup();
-
-            ImGuiMCP::SameLine(0.f, 8.f);
-
-            ImGuiMCP::BeginGroup();
-
-            ImGuiMCP::SetNextItemWidth(halfW);
-
-            DrawActorList("Victim", s.victimIdx);
-
-            if (ImGuiMCP::Button("Player##V")) {
-                s.victimIdx = 0;
-            }
-
-            ImGuiMCP::EndGroup();
-
-            // ------------------------------------------------------------
-            // Animation
-            // ------------------------------------------------------------
-            RenderIdleList(s);
-
-            // ------------------------------------------------------------
-            // Runtime actor resolve
-            // ------------------------------------------------------------
-
-            s.attacker = ResolveSlot(s.attackerIdx);
-            s.victim = ResolveSlot(s.victimIdx);
-
+        static void DrawResolvedActors(State& s) {
             const auto attackerLabel = GetActorLabel(s.attacker);
+
             const auto victimLabel = GetActorLabel(s.victim);
 
             ImGuiMCP::Separator();
 
             ImGuiMCP::TextDisabled("Attacker : %s", attackerLabel.c_str());
+
             ImGuiMCP::TextDisabled("Victim   : %s", victimLabel.c_str());
+        }
 
-            // ------------------------------------------------------------
-            // Fire
-            // ------------------------------------------------------------
+        static void DrawFireSection(State& s) {
+            auto* attacker = ResolveActor(s.attacker);
 
-            auto* attackerPtr = ResolveActor(s.attacker);
-            auto* victimPtr = ResolveActor(s.victim);
+            auto* victim = ResolveActor(s.victim);
 
-            const bool canFire = attackerPtr && victimPtr && attackerPtr != victimPtr;
+            const bool canFire = attacker && victim && attacker != victim;
+
             if (!canFire) {
                 ImGuiMCP::BeginDisabled();
             }
@@ -275,8 +248,8 @@ namespace paired_anim::ui {
                 if (!idle) {
                     SPDLOG_ERROR("Idle '{}' not found", s.selectedIdle);
                 } else {
-                    auto ok = paired_anim::PlayPairedIdle(attackerPtr, victimPtr, idle);
-                    g_state.lastFireStatus = (ok) ? FireStatus::Ok : FireStatus::Fail;
+                    const bool is_ok = paired_anim::PlayPairedIdle(attacker, victim, idle);
+                    s.lastFireStatus = is_ok ? FireStatus::Ok : FireStatus::Fail;
                 }
             }
 
@@ -288,9 +261,24 @@ namespace paired_anim::ui {
                 }
             }
 
-            // Status
             ImGuiMCP::TextColored(GetFireStatusColor(s.lastFireStatus), "Status: %s",
                 GetFireStatusLabel(s.lastFireStatus));
+        }
+
+        void __stdcall Render() {
+            auto& s = g_state;
+
+            if (s.idleCandidates.empty()) {
+                s.idleCandidates = BuildIdleList();
+            }
+            s.attacker = ResolveSlot(s.attackerIdx);
+            s.victim = ResolveSlot(s.victimIdx);
+
+            DrawScanControls(s);
+            DrawActorSelection(s);
+            DrawIdleList(s);
+            DrawResolvedActors(s);
+            DrawFireSection(s);
         }
 
         bool __stdcall OnInput(RE::InputEvent*) { return false; }
